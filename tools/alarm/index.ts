@@ -484,11 +484,10 @@ export default function (pi: ExtensionAPI) {
       "Create a timed alarm at a specific absolute time. The timestamp must be ISO 8601 format and in the future. Use alarm_now tool first to check current time.",
     promptSnippet: "Create a timed alarm (absolute ISO 8601 timestamp)",
     promptGuidelines: [
-      "Use alarm_now tool to get the current time before calling alarm_schedule.",
-      "The 'at' parameter MUST be strict ISO 8601 in UTC: e.g. 2026-06-26T14:30:00Z.",
-      "Use the Z suffix only. Convert from local time using alarm_now to check the offset.",
+      "STEP 1: Call alarm_now to get current time. Note the timestamp in the output (it includes local offset like +08:00).",
+      "STEP 2: Convert the user's desired local time to UTC by subtracting the offset. e.g. if alarm_now shows +08:00 and user wants 5pm local, compute 17:00 - 08:00 = 09:00Z → '2026-06-25T09:00:00Z'.",
+      "STEP 3: Use the resulting UTC timestamp (Z suffix) as the 'at' parameter. Always use Z, never ±HHMM.",
       "Date-only format (2026-06-26) is also accepted, interpreted as midnight UTC.",
-      "Use alarm_now to determine the correct time before calling.",
       "The timestamp must be in the future; past timestamps are rejected.",
     ],
     parameters: Type.Object({
@@ -552,11 +551,14 @@ export default function (pi: ExtensionAPI) {
             {
               type: "text",
               text:
-                `Error: timestamp ${params.at} is in the past.\n` +
-                `Current time: ${formatLocalTime(now.getTime())}`,
+                `Error: timestamp '${params.at}' is in the past.\n` +
+                `  Parsed UTC:  ${new Date(triggerAt).toISOString()}\n` +
+                `  Current UTC: ${now.toISOString()}\n` +
+                `  Current local: ${formatLocalTime(now.getTime())}\n` +
+                `Please call alarm_now to check the current time, then convert your desired local time to UTC by subtracting the offset.`,
             },
           ],
-          details: { error: "past timestamp" },
+          details: { error: "past timestamp", triggerAt, now: now.getTime() },
         };
       }
 
