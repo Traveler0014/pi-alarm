@@ -1,11 +1,19 @@
 {
   "name": "alarm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Timed alarms and reminders for pi — agent-callable tool and user slash command",
-  "keywords": ["pi-package", "pi-tool", "alarm", "reminder", "timer"],
+  "keywords": [
+    "pi-package",
+    "pi-tool",
+    "alarm",
+    "reminder",
+    "timer"
+  ],
   "license": "MIT",
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
