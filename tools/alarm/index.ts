@@ -149,8 +149,18 @@ function parseExpiresIn(value: string | undefined): number | "never" {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function formatLocalTime(ts: number): string {
+  const d = new Date(ts);
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const h = String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0");
+  const m = String(Math.abs(offset) % 60).padStart(2, "0");
+  const iso = d.toISOString().replace("Z", "");
+  return `${iso}${sign}${h}:${m}`;
+}
+
 function formatTriggerAt(triggerAt: number): string {
-  return new Date(triggerAt).toISOString();
+  return formatLocalTime(triggerAt);
 }
 
 function formatRemaining(triggerAt: number): string {
@@ -249,7 +259,7 @@ export default function (pi: ExtensionAPI) {
       { triggerTurn: true },
     );
 
-    uiCtx?.ui.notify(`⏰ ${alarm.message}`, "info");
+    uiCtx?.ui.notify(`⏰ ALARM: ${alarm.message}`, "warning");
     persistState();
     updateWidget();
   }
@@ -382,9 +392,10 @@ export default function (pi: ExtensionAPI) {
     async execute() {
       const now = new Date();
       return {
-        content: [{ type: "text", text: `Current time: ${now.toISOString()}` }],
+        content: [{ type: "text", text: `Current time: ${formatLocalTime(now.getTime())}` }],
         details: {
           iso: now.toISOString(),
+          local: formatLocalTime(now.getTime()),
           timestamp: now.getTime(),
           timezoneOffsetMin: now.getTimezoneOffset(),
         },
@@ -396,8 +407,8 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult(result, _opts, theme) {
-      const details = result.details as { iso?: string } | undefined;
-      return new Text(theme.fg("muted", details?.iso ?? ""), 0, 0);
+      const details = result.details as { local?: string } | undefined;
+      return new Text(theme.fg("muted", details?.local ?? ""), 0, 0);
     },
   });
 
@@ -475,13 +486,13 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      return new Text(
-        theme.fg("toolTitle", theme.bold("alarm_set")) +
-          theme.fg("dim", ` "${args.message}"`) +
-          theme.fg("accent", ` ${args.delay}s`),
-        0,
-        0,
-      );
+      let text = theme.fg("toolTitle", theme.bold("alarm_set"));
+      text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
+      text += "\n  " + theme.fg("dim", "delay: ") + theme.fg("accent", `${args.delay}s`);
+      if (args.expiresIn) {
+        text += "\n  " + theme.fg("dim", "expiresIn: ") + theme.fg("muted", args.expiresIn);
+      }
+      return new Text(text, 0, 0);
     },
 
     renderResult(result, _opts, theme) {
@@ -601,13 +612,13 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      return new Text(
-        theme.fg("toolTitle", theme.bold("alarm_schedule")) +
-          theme.fg("dim", ` "${args.message}"`) +
-          theme.fg("accent", ` ${args.at}`),
-        0,
-        0,
-      );
+      let text = theme.fg("toolTitle", theme.bold("alarm_schedule"));
+      text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
+      text += "\n  " + theme.fg("dim", "at: ") + theme.fg("accent", args.at);
+      if (args.expiresIn) {
+        text += "\n  " + theme.fg("dim", "expiresIn: ") + theme.fg("muted", args.expiresIn);
+      }
+      return new Text(text, 0, 0);
     },
 
     renderResult(result, _opts, theme) {
@@ -719,12 +730,9 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      return new Text(
-        theme.fg("toolTitle", theme.bold("alarm_cancel")) +
-          theme.fg("accent", ` #${args.id}`),
-        0,
-        0,
-      );
+      let text = theme.fg("toolTitle", theme.bold("alarm_cancel"));
+      text += "\n  " + theme.fg("dim", "id: ") + theme.fg("accent", `#${args.id}`);
+      return new Text(text, 0, 0);
     },
 
     renderResult(result, _opts, theme) {
@@ -898,21 +906,25 @@ export default function (pi: ExtensionAPI) {
     const details = message.details as
       | { alarmId?: number; firedAt?: number }
       | undefined;
+    const content = typeof message.content === "string" ? message.content : "";
 
-    // Main content: the reminder message (most important, displayed prominently)
+    // Label line (like user message "You" header but for alarms)
     let text =
-      theme.fg("warning", "⏰ ") +
-      theme.fg("text", typeof message.content === "string" ? message.content : "");
+      theme.fg("customMessageLabel", "⏰ ALARM");
+
+    // Main content: bold, same text color as custom messages
+    text += "\n" + theme.fg("customMessageText", theme.bold(content));
 
     // Footer: alarm metadata (secondary, dimmed)
     const meta: string[] = [];
     if (details?.alarmId) meta.push(`#${details.alarmId}`);
     if (details?.firedAt)
-      meta.push(`@ ${new Date(details.firedAt).toISOString()}`);
+      meta.push(`@ ${formatLocalTime(details.firedAt)}`);
     if (meta.length > 0) {
       text += "\n" + theme.fg("dim", meta.join(" "));
     }
 
-    return new Text(text, 0, 0);
+    // Bubble background — same style as user/custom messages, distinct color
+    return new Text(text, 1, 0, (s) => theme.bg("customMessageBg", s));
   });
 }
