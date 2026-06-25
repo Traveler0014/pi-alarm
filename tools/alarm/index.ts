@@ -50,10 +50,10 @@ const DEFAULT_EXPIRES_IN_SEC = 300; // 5 minutes
 const CUSTOM_TYPE = "alarm-state";
 const MESSAGE_TYPE = "alarm";
 
-/** Validate strict ISO 8601: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS(.ms)(Z|±HHMM).
- *  Timezone offset must be Z or ±HHMM (no colon) for reliable Date.parse cross-platform. */
+/** Validate strict ISO 8601: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS(.ms)Z.
+ *  Only UTC (Z suffix) is accepted for reliable cross-platform Date.parse. */
 const ISO_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{4})?)?$/;
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?)?$/;
 
 // ── Time Parsing ───────────────────────────────────────────────────────────
 
@@ -485,17 +485,17 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Create a timed alarm (absolute ISO 8601 timestamp)",
     promptGuidelines: [
       "Use alarm_now tool to get the current time before calling alarm_schedule.",
-      "The 'at' parameter MUST be strict ISO 8601: e.g. 2026-06-26T14:30:00Z or 2026-06-26T14:30:00+0800.",
-      "Timezone offset must use ±HHMM format (no colon). Use Z for UTC.",
+      "The 'at' parameter MUST be strict ISO 8601 in UTC: e.g. 2026-06-26T14:30:00Z.",
+      "Use the Z suffix only. Convert from local time using alarm_now to check the offset.",
       "Date-only format (2026-06-26) is also accepted, interpreted as midnight UTC.",
-      "Use alarm_now to determine the correct local time before calling.",
+      "Use alarm_now to determine the correct time before calling.",
       "The timestamp must be in the future; past timestamps are rejected.",
     ],
     parameters: Type.Object({
       message: Type.String({ description: "Reminder content" }),
       at: Type.String({
         description:
-          "ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z, 2026-06-26T14:30:00+0800, or 2026-06-26). Must be in the future. Use ±HHMM for offset (no colon).",
+          "ISO 8601 UTC timestamp (e.g., 2026-06-26T14:30:00Z or 2026-06-26). Z suffix only. Must be in the future.",
       }),
       expiresIn: Type.Optional(
         Type.String({
@@ -523,7 +523,7 @@ export default function (pi: ExtensionAPI) {
             {
               type: "text",
               text:
-                `Error: 'at' must be a valid ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z or 2026-06-26T14:30:00+0800).\n` +
+                `Error: 'at' must be a valid ISO 8601 UTC timestamp (e.g., 2026-06-26T14:30:00Z).\n` +
                 `Current time: ${formatLocalTime(now.getTime())}`,
             },
           ],
@@ -537,7 +537,9 @@ export default function (pi: ExtensionAPI) {
           content: [
             {
               type: "text",
-              text: `Error: could not parse '${params.at}' as a valid ISO 8601 timestamp.\nCurrent time: ${formatLocalTime(now.getTime())}`,
+              text:
+                `Error: could not parse '${params.at}'. Use UTC format with Z suffix (e.g., 2026-06-26T14:30:00Z).\n` +
+                `Current time: ${formatLocalTime(now.getTime())}`,
             },
           ],
           details: { error: "unparseable timestamp" },
