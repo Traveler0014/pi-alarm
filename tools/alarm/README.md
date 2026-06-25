@@ -7,10 +7,10 @@ Timed alarms and reminders for pi — agent-callable tools and user slash comman
 | Layer | Style | Format | Example |
 |-------|-------|--------|---------|
 | Tool (agent) | `snake_case` | `<prefix>_<verb>` | `alarm_set`, `alarm_schedule`, `alarm_list`, `alarm_cancel` |
-| Command (user) | `kebab-case` | `/<prefix>-<verb>` | `/alarm-set`, `/alarm-list`, `/alarm-cancel` |
+| Command (user) | `kebab-case` | `/<prefix>-<verb>` | `/alarm-set`, `/alarm-in`, `/alarm-at`, `/alarm-list`, `/alarm-cancel` |
 
 - **prefix**: identifies the source extension (`alarm`)
-- **verb**: a single action word (`set`, `schedule`, `list`, `cancel`)
+- **verb**: a single action word (`set`, `in`, `at`, `schedule`, `list`, `cancel`)
 
 ## Tools
 
@@ -73,27 +73,47 @@ alarm_cancel(id=2)
 
 ### `/alarm-set`
 
-```
-/alarm-set in <delay> <message>
-/alarm-set at <time> <message>
-/alarm-set <natural language>   → falls back to LLM
-```
-
-**Relative (`in`):** `30s`, `5m`, `1h30m`, `2h15m30s`, `300` (seconds)
-
-**Absolute (`at`):** `14:30`, `2:30pm`, `tomorrow 9:00`, `2026-06-26T14:30:00Z`
-
-**Bare text:** When no `in`/`at` prefix is detected, the raw input is forwarded to the agent, which uses `alarm_now` + `alarm_set` / `alarm_schedule` to create the alarm.
+Forward natural language to the LLM, which uses `alarm_now` + `alarm_set` / `alarm_schedule` to create the alarm.
 
 ```bash
-/alarm-set in 5m Check build results
-/alarm-set in 1h30m Take a break
-/alarm-set at 14:30 Team meeting
-/alarm-set at tomorrow 9:00 Deploy to production
 /alarm-set remind me to check the logs in 10 minutes
 ```
 
-If time parsing fails, falls back to LLM (`alarm_now` + `alarm_set` / `alarm_schedule`).
+### `/alarm-in`
+
+Set an alarm with a **relative delay**. First token is the delay, rest is the message.
+
+```
+/alarm-in <delay> <message>
+```
+
+**Delay formats:** `30s`, `5m`, `1h30m`, `2h15m30s`, `300` (bare seconds)
+
+```bash
+/alarm-in 5m Check build results
+/alarm-in 1h30m Take a break
+/alarm-in 300s Coffee ready
+```
+
+If parsing fails, falls back to LLM.
+
+### `/alarm-at`
+
+Set an alarm at an **absolute time**. First token(s) are the time, rest is the message.
+
+```
+/alarm-at <time> <message>
+```
+
+**Time formats:** `14:30`, `2:30pm`, `tomorrow 9:00`, `2026-06-26T14:30:00Z`
+
+```bash
+/alarm-at 14:30 Team meeting
+/alarm-at tomorrow 9:00 Deploy to production
+/alarm-at 2026-06-26T14:30:00Z Release deadline
+```
+
+If parsing fails, falls back to LLM.
 
 ### Status Bar
 

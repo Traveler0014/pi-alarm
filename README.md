@@ -9,7 +9,7 @@ Timed alarms and reminders extension for pi coding agent
 
 | Extension | Providers | Commands | Tools |
 |-----------|-----------|----------|-------|
-| [tools/alarm](./tools/alarm) | — | `/alarm-set`, `/alarm-list`, `/alarm-cancel`, `/alarm-clear` | `alarm_now`, `alarm_set`, `alarm_schedule`, `alarm_list`, `alarm_cancel` |
+| [tools/alarm](./tools/alarm) | — | `/alarm-set`, `/alarm-in`, `/alarm-at`, `/alarm-list`, `/alarm-cancel`, `/alarm-clear` | `alarm_now`, `alarm_set`, `alarm_schedule`, `alarm_list`, `alarm_cancel` |
 
 ### [tools/alarm](./tools/alarm)
 
@@ -17,7 +17,9 @@ Timed alarms and reminders for pi — agent-callable tools and user slash comman
 
 **Commands:**
 
-- `/alarm-set` — Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg> (bare text falls back to LLM)
+- `/alarm-set` — Set a timed alarm via LLM — any natural language input
+- `/alarm-in` — Set a timed alarm with relative delay — /alarm-in <delay> <msg>
+- `/alarm-at` — Set a timed alarm at an absolute time — /alarm-at <time> <msg>
 - `/alarm-list` — List all pending alarms
 - `/alarm-cancel` — Cancel an alarm by ID — /alarm-cancel <id>
 - `/alarm-clear` — Cancel all pending alarms

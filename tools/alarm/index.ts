@@ -757,81 +757,84 @@ export default function (pi: ExtensionAPI) {
 
   // ── Commands ─────────────────────────────────────────────────────────
 
-  // /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>
+  // /alarm-set <anything> — always forward to LLM
   pi.registerCommand("alarm-set", {
-    description:
-      "Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg> (bare text falls back to LLM)",
+    description: "Set a timed alarm via LLM — any natural language input",
     handler: async (args, ctx) => {
       const input = args.trim();
       if (!input) {
-        ctx.ui.notify(
-          "Usage: /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>",
-          "warning",
-        );
+        ctx.ui.notify("Usage: /alarm-set <natural language description>", "warning");
         return;
       }
 
-      // /alarm-set in <delay> <msg>
-      const inMatch = input.match(/^in\s+(.+)$/i);
-      if (inMatch) {
-        const rest = inMatch[1].trim();
-        const parsed = parseRelativeTime(rest);
-        if (parsed) {
-          const message = parsed.rest || "Alarm";
-          const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
-          ctx.ui.notify(
-            `⏰ Alarm #${alarm.id} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
-            "info",
-          );
-          return;
-        }
-
-        // Fallback to LLM
-        if (ctx.isIdle()) {
-          pi.sendUserMessage(
-            `The user wants to set an alarm with relative time: "${rest}". ` +
-              `Please use the alarm_now tool to check the current time, ` +
-              `then use the alarm_set tool to set it.`,
-          );
-        } else {
-          ctx.ui.notify("Agent is busy, try again in a moment", "warning");
-        }
-        return;
-      }
-
-      // /alarm-set at <time> <msg>
-      const atMatch = input.match(/^at\s+(.+)$/i);
-      if (atMatch) {
-        const rest = atMatch[1].trim();
-        const parsed = parseAbsoluteTime(rest);
-        if (parsed) {
-          const message = parsed.rest || "Alarm";
-          const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
-          ctx.ui.notify(
-            `⏰ Alarm #${alarm.id} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
-            "info",
-          );
-          return;
-        }
-
-        // Fallback to LLM
-        if (ctx.isIdle()) {
-          pi.sendUserMessage(
-            `The user wants to set an alarm at a specific time: "${rest}". ` +
-              `Please use the alarm_now tool to check the current time, ` +
-              `then use the alarm_schedule tool to set it.`,
-          );
-        } else {
-          ctx.ui.notify("Agent is busy, try again in a moment", "warning");
-        }
-        return;
-      }
-
-      // No in/at prefix — fallback to LLM
       if (ctx.isIdle()) {
         pi.sendUserMessage(
           `The user wants to set an alarm: "${input}". ` +
           `Please use alarm_now to check the current time, then use alarm_set or alarm_schedule.`,
+        );
+      } else {
+        ctx.ui.notify("Agent is busy, try again in a moment", "warning");
+      }
+    },
+  });
+
+  // /alarm-in <delay> <msg>
+  pi.registerCommand("alarm-in", {
+    description: "Set a timed alarm with relative delay — /alarm-in <delay> <msg>",
+    handler: async (args, ctx) => {
+      const input = args.trim();
+      if (!input) {
+        ctx.ui.notify("Usage: /alarm-in <delay> <msg>  (e.g. 5m, 1h30m, 300s)", "warning");
+        return;
+      }
+
+      const parsed = parseRelativeTime(input);
+      if (parsed) {
+        const message = parsed.rest || "Alarm";
+        const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
+        ctx.ui.notify(
+          `⏰ Alarm #${alarm.id} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
+          "info",
+        );
+        return;
+      }
+
+      if (ctx.isIdle()) {
+        pi.sendUserMessage(
+          `The user wants to set an alarm with relative time: "${input}". ` +
+          `Please use alarm_now to check the current time, then use alarm_set.`,
+        );
+      } else {
+        ctx.ui.notify("Agent is busy, try again in a moment", "warning");
+      }
+    },
+  });
+
+  // /alarm-at <time> <msg>
+  pi.registerCommand("alarm-at", {
+    description: "Set a timed alarm at an absolute time — /alarm-at <time> <msg>",
+    handler: async (args, ctx) => {
+      const input = args.trim();
+      if (!input) {
+        ctx.ui.notify("Usage: /alarm-at <time> <msg>  (e.g. 14:30, tomorrow 9:00, 2026-06-26T14:30:00Z)", "warning");
+        return;
+      }
+
+      const parsed = parseAbsoluteTime(input);
+      if (parsed) {
+        const message = parsed.rest || "Alarm";
+        const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
+        ctx.ui.notify(
+          `⏰ Alarm #${alarm.id} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
+          "info",
+        );
+        return;
+      }
+
+      if (ctx.isIdle()) {
+        pi.sendUserMessage(
+          `The user wants to set an alarm at a specific time: "${input}". ` +
+          `Please use alarm_now to check the current time, then use alarm_schedule.`,
         );
       } else {
         ctx.ui.notify("Agent is busy, try again in a moment", "warning");
