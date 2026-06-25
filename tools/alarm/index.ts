@@ -2,7 +2,7 @@
  * Alarm Extension — Timed reminders for pi
  *
  * Tools (agent-facing, KISS):
- * - `now`          — get current date/time (Node.js Date, cross-platform)
+ * - `alarm_now`   — get current date/time (Node.js Date, cross-platform)
  * - `alarm_set`    — create a timed alarm (relative delay in seconds)
  * - `alarm_schedule` — create a timed alarm (absolute ISO 8601 timestamp)
  * - `alarm_list`   — list pending alarms
@@ -149,10 +149,20 @@ function formatLocalTime(ts: number): string {
   const d = new Date(ts);
   const offset = -d.getTimezoneOffset();
   const sign = offset >= 0 ? "+" : "-";
-  const h = String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0");
-  const m = String(Math.abs(offset) % 60).padStart(2, "0");
-  const iso = d.toISOString().replace("Z", "");
-  return `${iso}${sign}${h}:${m}`;
+  const absOff = Math.abs(offset);
+  const offH = String(Math.floor(absOff / 60)).padStart(2, "0");
+  const offM = String(absOff % 60).padStart(2, "0");
+
+  // Use local time components so the string round-trips correctly
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const seconds = String(d.getSeconds()).padStart(2, "0");
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${ms}${sign}${offH}:${offM}`;
 }
 
 function formatTriggerAt(triggerAt: number): string {
@@ -176,8 +186,6 @@ export default function (pi: ExtensionAPI) {
   let alarms: Alarm[] = [];
   let nextId = 1;
   const timers = new Map<number, ReturnType<typeof setTimeout>>();
-  let uiCtx: ExtensionContext | null = null;
-
   // ── State Management ─────────────────────────────────────────────────
 
   function persistState() {
@@ -280,8 +288,6 @@ export default function (pi: ExtensionAPI) {
   // ── Session Lifecycle ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
-    uiCtx = ctx;
-
     reconstructState(ctx);
 
     const now = Date.now();
@@ -332,7 +338,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     clearAllTimers();
-    uiCtx = null;
   });
 
   // ── Tool: now ────────────────────────────────────────────────────────
@@ -478,17 +483,17 @@ export default function (pi: ExtensionAPI) {
       "Create a timed alarm at a specific absolute time. The timestamp must be ISO 8601 format and in the future. Use alarm_now tool first to check current time.",
     promptSnippet: "Create a timed alarm (absolute ISO 8601 timestamp)",
     promptGuidelines: [
-      "STEP 1: Call alarm_now to get current time. Note the timestamp in the output (it includes local offset like +08:00).",
-      "STEP 2: Convert the user's desired local time to UTC by subtracting the offset. e.g. if alarm_now shows +08:00 and user wants 5pm local, compute 17:00 - 08:00 = 09:00Z → '2026-06-25T09:00:00Z'.",
-      "STEP 3: Use the resulting UTC timestamp (Z suffix) as the 'at' parameter. Always use Z, never ±HHMM.",
-      "Date-only format (2026-06-26) is also accepted, interpreted as midnight UTC.",
-      "The timestamp must be in the future; past timestamps are rejected.",
+      "Call alarm_now first to get the current time and local offset (e.g., +08:00).",
+      "Use the offset from alarm_now to construct the timestamp. e.g., if alarm_now shows +08:00 and the user wants 5pm local: '2026-06-25T17:00:00+08:00'.",
+      "You may also use Z suffix for UTC: '2026-06-25T09:00:00Z'. Date-only format (2026-06-26) = midnight UTC.",
+      "Both 'Z', '+HH:MM', and '+HHMM' formats are accepted by Date.parse.",
+      "The timestamp must be in the future; past timestamps are rejected with diagnostic info.",
     ],
     parameters: Type.Object({
       message: Type.String({ description: "Reminder content" }),
       at: Type.String({
         description:
-          "ISO 8601 UTC timestamp (e.g., 2026-06-26T14:30:00Z or 2026-06-26). Z suffix only. Must be in the future.",
+          "ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z, 2026-06-26T14:30:00+08:00, or date-only 2026-06-26). Must be in the future.",
       }),
       expiresIn: Type.Optional(
         Type.String({
@@ -524,7 +529,24 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const triggerAt = Date.parse(params.at);
+      // Strict ISO 8601 format validation
+      const ISO_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+      const atTrimmed = params.at.trim();
+      if (!ISO_PATTERN.test(atTrimmed)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Error: invalid ISO 8601 format '${params.at}'. Expected: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS±HH:MM.\n` +
+                `Current time: ${formatLocalTime(now.getTime())}`,
+            },
+          ],
+          details: { error: "invalid ISO format" },
+        };
+      }
+
+      const triggerAt = Date.parse(atTrimmed);
       if (isNaN(triggerAt)) {
         return {
           content: [

@@ -8,8 +8,8 @@
     "alarm",
     "reminder"
   ],
-  "author": "",
   "license": "MIT",
+  "author": "",
   "repository": "git@github.com:Traveler0014/pi-alarm.git",
   "installUrl": "https://github.com/Traveler0014/pi-alarm.git",
   "scripts": {

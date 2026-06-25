@@ -118,7 +118,7 @@ TAG="${EXT_NAME}@${NEW_VERSION}"
 
 echo ""
 echo "→ Committing..."
-git add -A
+git add "$EXT_DIR" "$REPO_ROOT/README.md"
 git commit -m "release: ${TAG}"
 
 # ── Tag ──────────────────────────────────────────────────────────────────────
