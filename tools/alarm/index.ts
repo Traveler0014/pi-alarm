@@ -254,7 +254,6 @@ export default function (pi: ExtensionAPI) {
       { triggerTurn: true },
     );
 
-    uiCtx?.ui.notify(`ALARM: ${alarm.message}`, "warning");
     persistState();
   }
 
