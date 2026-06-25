@@ -50,9 +50,10 @@ const DEFAULT_EXPIRES_IN_SEC = 300; // 5 minutes
 const CUSTOM_TYPE = "alarm-state";
 const MESSAGE_TYPE = "alarm";
 
- /** Validate strict ISO 8601: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS(.ms)(Z|±HH:MM) */
+/** Validate strict ISO 8601: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS(.ms)(Z|±HHMM).
+ *  Timezone offset must be Z or ±HHMM (no colon) for reliable Date.parse cross-platform. */
 const ISO_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{4})?)?$/;
 
 // ── Time Parsing ───────────────────────────────────────────────────────────
 
@@ -180,7 +181,6 @@ export default function (pi: ExtensionAPI) {
   let alarms: Alarm[] = [];
   let nextId = 1;
   const timers = new Map<number, ReturnType<typeof setTimeout>>();
-  let widgetIntervalId: ReturnType<typeof setInterval> | null = null;
   let uiCtx: ExtensionContext | null = null;
 
   // ── State Management ─────────────────────────────────────────────────
@@ -261,7 +261,6 @@ export default function (pi: ExtensionAPI) {
 
     uiCtx?.ui.notify(`ALARM: ${alarm.message}`, "warning");
     persistState();
-    updateWidget();
   }
 
   /** Create a new alarm, schedule it, persist, and update UI */
@@ -281,41 +280,7 @@ export default function (pi: ExtensionAPI) {
     alarms.push(alarm);
     scheduleAlarm(alarm);
     persistState();
-    updateWidget();
     return alarm;
-  }
-
-  // ── Widget ───────────────────────────────────────────────────────────
-
-  function updateWidget() {
-    const pending = alarms.filter((a) => a.status === "pending");
-    if (pending.length === 0) {
-      uiCtx?.ui.setWidget("alarm", undefined);
-      uiCtx?.ui.setStatus("alarm", undefined);
-      return;
-    }
-
-    const next = pending.reduce((a, b) => (a.triggerAt < b.triggerAt ? a : b));
-    const remaining = formatRemaining(next.triggerAt);
-
-    uiCtx?.ui.setWidget("alarm", [`⏰ Next: ${remaining} — ${next.message}`]);
-    uiCtx?.ui.setStatus(
-      "alarm",
-      `⏰ ${pending.length} alarm${pending.length > 1 ? "s" : ""}`,
-    );
-  }
-
-  function startWidgetUpdater() {
-    stopWidgetUpdater();
-    updateWidget();
-    widgetIntervalId = setInterval(updateWidget, 1000);
-  }
-
-  function stopWidgetUpdater() {
-    if (widgetIntervalId) {
-      clearInterval(widgetIntervalId);
-      widgetIntervalId = null;
-    }
   }
 
   // ── Session Lifecycle ────────────────────────────────────────────────
@@ -350,7 +315,6 @@ export default function (pi: ExtensionAPI) {
     }
 
     persistState();
-    startWidgetUpdater();
   });
 
   pi.on("session_tree", async (_event, ctx) => {
@@ -370,11 +334,9 @@ export default function (pi: ExtensionAPI) {
     }
 
     persistState();
-    updateWidget();
   });
 
   pi.on("session_shutdown", async () => {
-    stopWidgetUpdater();
     clearAllTimers();
     uiCtx = null;
   });
@@ -443,7 +405,7 @@ export default function (pi: ExtensionAPI) {
       if (!params.message) {
         return {
           content: [
-            { type: "text", text: `Error: 'message' is required.\nCurrent time: ${now.toISOString()}` },
+            { type: "text", text: `Error: 'message' is required.\nCurrent time: ${formatLocalTime(now.getTime())}` },
           ],
           details: { error: "message required" },
         };
@@ -452,7 +414,7 @@ export default function (pi: ExtensionAPI) {
       if (params.delay === undefined || params.delay === null) {
         return {
           content: [
-            { type: "text", text: `Error: 'delay' is required.\nCurrent time: ${now.toISOString()}` },
+            { type: "text", text: `Error: 'delay' is required.\nCurrent time: ${formatLocalTime(now.getTime())}` },
           ],
           details: { error: "delay required" },
         };
@@ -461,7 +423,7 @@ export default function (pi: ExtensionAPI) {
       if (typeof params.delay !== "number" || params.delay <= 0) {
         return {
           content: [
-            { type: "text", text: `Error: 'delay' must be a positive number (seconds).\nCurrent time: ${now.toISOString()}` },
+            { type: "text", text: `Error: 'delay' must be a positive number (seconds).\nCurrent time: ${formatLocalTime(now.getTime())}` },
           ],
           details: { error: "invalid delay" },
         };
@@ -523,15 +485,17 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Create a timed alarm (absolute ISO 8601 timestamp)",
     promptGuidelines: [
       "Use alarm_now tool to get the current time before calling alarm_schedule.",
-      "The 'at' parameter MUST be strict ISO 8601: e.g. 2026-06-26T14:30:00Z or 2026-06-26T14:30:00+08:00.",
+      "The 'at' parameter MUST be strict ISO 8601: e.g. 2026-06-26T14:30:00Z or 2026-06-26T14:30:00+0800.",
+      "Timezone offset must use ±HHMM format (no colon). Use Z for UTC.",
       "Date-only format (2026-06-26) is also accepted, interpreted as midnight UTC.",
+      "Use alarm_now to determine the correct local time before calling.",
       "The timestamp must be in the future; past timestamps are rejected.",
     ],
     parameters: Type.Object({
       message: Type.String({ description: "Reminder content" }),
       at: Type.String({
         description:
-          "ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z, 2026-06-26T14:30:00+08:00, or 2026-06-26). Must be in the future.",
+          "ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z, 2026-06-26T14:30:00+0800, or 2026-06-26). Must be in the future. Use ±HHMM for offset (no colon).",
       }),
       expiresIn: Type.Optional(
         Type.String({
@@ -547,7 +511,7 @@ export default function (pi: ExtensionAPI) {
       if (!params.message) {
         return {
           content: [
-            { type: "text", text: `Error: 'message' is required.\nCurrent time: ${now.toISOString()}` },
+            { type: "text", text: `Error: 'message' is required.\nCurrent time: ${formatLocalTime(now.getTime())}` },
           ],
           details: { error: "message required" },
         };
@@ -559,8 +523,8 @@ export default function (pi: ExtensionAPI) {
             {
               type: "text",
               text:
-                `Error: 'at' must be a valid ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z).\n` +
-                `Current time: ${now.toISOString()}`,
+                `Error: 'at' must be a valid ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z or 2026-06-26T14:30:00+0800).\n` +
+                `Current time: ${formatLocalTime(now.getTime())}`,
             },
           ],
           details: { error: "invalid timestamp format" },
@@ -573,7 +537,7 @@ export default function (pi: ExtensionAPI) {
           content: [
             {
               type: "text",
-              text: `Error: could not parse '${params.at}' as a valid ISO 8601 timestamp.\nCurrent time: ${now.toISOString()}`,
+              text: `Error: could not parse '${params.at}' as a valid ISO 8601 timestamp.\nCurrent time: ${formatLocalTime(now.getTime())}`,
             },
           ],
           details: { error: "unparseable timestamp" },
@@ -587,7 +551,7 @@ export default function (pi: ExtensionAPI) {
               type: "text",
               text:
                 `Error: timestamp ${params.at} is in the past.\n` +
-                `Current time: ${now.toISOString()}`,
+                `Current time: ${formatLocalTime(now.getTime())}`,
             },
           ],
           details: { error: "past timestamp" },
@@ -721,7 +685,6 @@ export default function (pi: ExtensionAPI) {
       alarm.status = "cancelled";
       cancelTimer(alarm.id);
       persistState();
-      updateWidget();
 
       return {
         content: [{ type: "text", text: `Alarm #${alarm.id} cancelled: "${alarm.message}"` }],
@@ -873,7 +836,6 @@ export default function (pi: ExtensionAPI) {
       alarm.status = "cancelled";
       cancelTimer(id);
       persistState();
-      updateWidget();
       ctx.ui.notify(`Alarm #${id} cancelled`, "info");
     },
   });
@@ -895,7 +857,6 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       persistState();
-      updateWidget();
       ctx.ui.notify(`Cleared ${count} alarm${count > 1 ? "s" : ""}`, "info");
     },
   });
