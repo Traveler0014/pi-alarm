@@ -15,7 +15,8 @@
   "pi": {
     "extensions": [
       "example-provider",
-      "tools/example-plugin"
+      "tools/example-plugin",
+      "tools/alarm"
     ]
   },
   "devDependencies": {
