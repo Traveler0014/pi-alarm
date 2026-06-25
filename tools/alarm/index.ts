@@ -259,7 +259,7 @@ export default function (pi: ExtensionAPI) {
       { triggerTurn: true },
     );
 
-    uiCtx?.ui.notify(`⏰ ALARM: ${alarm.message}`, "warning");
+    uiCtx?.ui.notify(`ALARM: ${alarm.message}`, "warning");
     persistState();
     updateWidget();
   }
@@ -910,7 +910,7 @@ export default function (pi: ExtensionAPI) {
 
     // Label line (like user message "You" header but for alarms)
     let text =
-      theme.fg("customMessageLabel", "⏰ ALARM");
+      theme.fg("customMessageLabel", "ALARM");
 
     // Main content: bold, same text color as custom messages
     text += "\n" + theme.fg("customMessageText", theme.bold(content));
