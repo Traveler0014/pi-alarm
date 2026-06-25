@@ -76,20 +76,28 @@ alarm_cancel(id=2)
 ```
 /alarm-set in <delay> <message>
 /alarm-set at <time> <message>
+/alarm-set <natural language>   → falls back to LLM
 ```
 
 **Relative (`in`):** `30s`, `5m`, `1h30m`, `2h15m30s`, `300` (seconds)
 
 **Absolute (`at`):** `14:30`, `2:30pm`, `tomorrow 9:00`, `2026-06-26T14:30:00Z`
 
+**Bare text:** When no `in`/`at` prefix is detected, the raw input is forwarded to the agent, which uses `alarm_now` + `alarm_set` / `alarm_schedule` to create the alarm.
+
 ```bash
 /alarm-set in 5m Check build results
 /alarm-set in 1h30m Take a break
 /alarm-set at 14:30 Team meeting
 /alarm-set at tomorrow 9:00 Deploy to production
+/alarm-set remind me to check the logs in 10 minutes
 ```
 
 If time parsing fails, falls back to LLM (`alarm_now` + `alarm_set` / `alarm_schedule`).
+
+### Status Bar
+
+A persistent status indicator in the footer shows the count of pending alarms (e.g. `⏰ 2 pending`). It disappears when no alarms are pending.
 
 ### `/alarm-list`
 

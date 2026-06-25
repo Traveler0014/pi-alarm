@@ -186,6 +186,7 @@ export default function (pi: ExtensionAPI) {
   let alarms: Alarm[] = [];
   let nextId = 1;
   const timers = new Map<number, ReturnType<typeof setTimeout>>();
+  let uiCtx: ExtensionContext | null = null;
   // ── State Management ─────────────────────────────────────────────────
 
   function persistState() {
@@ -238,6 +239,16 @@ export default function (pi: ExtensionAPI) {
     timers.clear();
   }
 
+  function updateStatusBar() {
+    if (!uiCtx) return;
+    const count = alarms.filter((a) => a.status === "pending").length;
+    if (count > 0) {
+      uiCtx.ui.setStatus("alarm", uiCtx.ui.theme.fg("warning", `⏰ ${count} pending`));
+    } else {
+      uiCtx.ui.setStatus("alarm", undefined);
+    }
+  }
+
   function fireAlarm(id: number) {
     const alarm = alarms.find((a) => a.id === id);
     if (!alarm || alarm.status !== "pending") return;
@@ -263,6 +274,7 @@ export default function (pi: ExtensionAPI) {
     );
 
     persistState();
+    updateStatusBar();
   }
 
   /** Create a new alarm, schedule it, persist, and update UI */
@@ -282,12 +294,15 @@ export default function (pi: ExtensionAPI) {
     alarms.push(alarm);
     scheduleAlarm(alarm);
     persistState();
+    updateStatusBar();
     return alarm;
   }
 
   // ── Session Lifecycle ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    uiCtx = ctx;
+
     reconstructState(ctx);
 
     const now = Date.now();
@@ -315,6 +330,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     persistState();
+    updateStatusBar();
   });
 
   pi.on("session_tree", async (_event, ctx) => {
@@ -334,10 +350,12 @@ export default function (pi: ExtensionAPI) {
     }
 
     persistState();
+    updateStatusBar();
   });
 
   pi.on("session_shutdown", async () => {
     clearAllTimers();
+    uiCtx = null;
   });
 
   // ── Tool: now ────────────────────────────────────────────────────────
@@ -705,6 +723,7 @@ export default function (pi: ExtensionAPI) {
       alarm.status = "cancelled";
       cancelTimer(alarm.id);
       persistState();
+      updateStatusBar();
 
       return {
         content: [{ type: "text", text: `Alarm #${alarm.id} cancelled: "${alarm.message}"` }],
@@ -741,7 +760,7 @@ export default function (pi: ExtensionAPI) {
   // /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>
   pi.registerCommand("alarm-set", {
     description:
-      "Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>",
+      "Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg> (bare text falls back to LLM)",
     handler: async (args, ctx) => {
       const input = args.trim();
       if (!input) {
@@ -808,10 +827,15 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify(
-        "Usage: /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>",
-        "warning",
-      );
+      // No in/at prefix — fallback to LLM
+      if (ctx.isIdle()) {
+        pi.sendUserMessage(
+          `The user wants to set an alarm: "${input}". ` +
+          `Please use alarm_now to check the current time, then use alarm_set or alarm_schedule.`,
+        );
+      } else {
+        ctx.ui.notify("Agent is busy, try again in a moment", "warning");
+      }
     },
   });
 
@@ -856,6 +880,7 @@ export default function (pi: ExtensionAPI) {
       alarm.status = "cancelled";
       cancelTimer(id);
       persistState();
+      updateStatusBar();
       ctx.ui.notify(`Alarm #${id} cancelled`, "info");
     },
   });
@@ -877,6 +902,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       persistState();
+      updateStatusBar();
       ctx.ui.notify(`Cleared ${count} alarm${count > 1 ? "s" : ""}`, "info");
     },
   });

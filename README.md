@@ -17,7 +17,7 @@ Timed alarms and reminders for pi — agent-callable tools and user slash comman
 
 **Commands:**
 
-- `/alarm-set` — Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg>
+- `/alarm-set` — Set a timed alarm — /alarm-set in <delay> <msg> | /alarm-set at <time> <msg> (bare text falls back to LLM)
 - `/alarm-list` — List all pending alarms
 - `/alarm-cancel` — Cancel an alarm by ID — /alarm-cancel <id>
 - `/alarm-clear` — Cancel all pending alarms
