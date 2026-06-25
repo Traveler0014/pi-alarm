@@ -110,7 +110,7 @@ Cancel all pending alarms.
 ## Install
 
 ```bash
-pi install https://github.com/Traveler0014/pi-extension-template.git
+pi install https://github.com/Traveler0014/pi-alarm.git
 ```
 
 ## License

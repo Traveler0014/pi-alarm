@@ -1,21 +1,22 @@
 {
-  "name": "pi-extension-template",
+  "name": "pi-alarm",
   "version": "1.0.0",
-  "description": "Template repository for pi extensions — pick a layout and start building",
+  "description": "Timed alarms and reminders extension for pi coding agent",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi-alarm",
+    "alarm",
+    "reminder"
   ],
   "author": "",
   "license": "MIT",
-  "repository": "git@github.com:Traveler0014/pi-extension-template.git",
-  "installUrl": "https://github.com/Traveler0014/pi-extension-template.git",
+  "repository": "git@github.com:Traveler0014/pi-alarm.git",
+  "installUrl": "https://github.com/Traveler0014/pi-alarm.git",
   "scripts": {
     "update-docs": "tsx scripts/update-docs.ts"
   },
   "pi": {
     "extensions": [
-      "example-provider",
-      "tools/example-plugin",
       "tools/alarm"
     ]
   },

@@ -322,7 +322,7 @@ npm run update-docs
 插件 README 中的安装命令应使用 HTTPS 地址：
 
 ```bash
-pi install https://github.com/USERNAME/REPO.git
+pi install https://github.com/Traveler0014/pi-alarm.git
 ```
 
 ### Step 4: 更新版本号并 git tag
