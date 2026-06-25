@@ -50,11 +50,6 @@ const DEFAULT_EXPIRES_IN_SEC = 300; // 5 minutes
 const CUSTOM_TYPE = "alarm-state";
 const MESSAGE_TYPE = "alarm";
 
-/** Validate strict ISO 8601: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS(.ms)Z.
- *  Only UTC (Z suffix) is accepted for reliable cross-platform Date.parse. */
-const ISO_PATTERN =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?)?$/;
-
 // ── Time Parsing ───────────────────────────────────────────────────────────
 
 /** Parse relative time for "in" prefix: 30s, 5m, 1h30m, bare seconds */
@@ -516,17 +511,17 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      if (!params.at || !ISO_PATTERN.test(params.at.trim())) {
+      if (!params.at || !params.at.trim()) {
         return {
           content: [
             {
               type: "text",
               text:
-                `Error: 'at' must be a valid ISO 8601 UTC timestamp (e.g., 2026-06-26T14:30:00Z).\n` +
+                `Error: 'at' is required. Please provide an ISO 8601 UTC timestamp (e.g., 2026-06-26T14:30:00Z).\n` +
                 `Current time: ${formatLocalTime(now.getTime())}`,
             },
           ],
-          details: { error: "invalid timestamp format" },
+          details: { error: "at required" },
         };
       }
 
