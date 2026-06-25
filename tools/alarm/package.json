@@ -1,6 +1,6 @@
 {
   "name": "alarm",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Timed alarms and reminders for pi — agent-callable tool and user slash command",
   "keywords": [
     "pi-package",
