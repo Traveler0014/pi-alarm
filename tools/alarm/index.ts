@@ -22,35 +22,20 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { AlarmManager, type Alarm, type AlarmState } from "./manager.js";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
 
-interface Alarm {
-  id: number;
-  message: string;
-  triggerAt: number; // Unix ms
-  expiresIn: number | "never"; // Seconds after triggerAt; restore beyond → discard
-  status: "pending" | "fired" | "cancelled";
-  createdAt: number; // Unix ms
-}
+const DEFAULT_EXPIRES_IN_SEC = 300;
+const CUSTOM_TYPE = "alarm-state";
+const MESSAGE_TYPE = "alarm";
 
-interface AlarmState {
-  alarms: Alarm[];
-  nextId: number;
-}
+// ── Time Parsing ───────────────────────────────────────────────────────────
 
 interface ParseResult {
   triggerAt: number;
   rest: string; // remaining text after the time portion
 }
-
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const DEFAULT_EXPIRES_IN_SEC = 300; // 5 minutes
-const CUSTOM_TYPE = "alarm-state";
-const MESSAGE_TYPE = "alarm";
-
-// ── Time Parsing ───────────────────────────────────────────────────────────
 
 /** Parse relative time for "in" prefix: 30s, 5m, 1h30m, bare seconds */
 function parseRelativeTime(input: string): ParseResult | null {
@@ -182,90 +167,48 @@ function formatRemaining(triggerAt: number): string {
 // ── Extension Entry ────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  // In-memory state
-  let alarms: Alarm[] = [];
-  let nextId = 1;
-  const timers = new Map<number, ReturnType<typeof setTimeout>>();
+  // ── State ─────────────────────────────────────────────────────────────
+
+  let manager: AlarmManager | null = null;
   let uiCtx: ExtensionContext | null = null;
-  // ── State Management ─────────────────────────────────────────────────
+
+  function getManager(): AlarmManager {
+    if (!manager) {
+      manager = new AlarmManager(fireAlarm);
+    }
+    return manager;
+  }
+
+  // ── State Persistence ─────────────────────────────────────────────────
 
   function persistState() {
-    pi.appendEntry(CUSTOM_TYPE, {
-      alarms: alarms.map((a) => ({ ...a })),
-      nextId,
-    } as AlarmState);
-  }
-
-  function reconstructState(ctx: ExtensionContext) {
-    alarms = [];
-    nextId = 1;
-
-    for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type === "custom" && (entry as any).customType === CUSTOM_TYPE) {
-        const data = (entry as any).data as AlarmState;
-        if (data) {
-          alarms = data.alarms.map((a) => ({ ...a }));
-          nextId = data.nextId;
-        }
-      }
-    }
-  }
-
-  // ── Timer Management ─────────────────────────────────────────────────
-
-  function scheduleAlarm(alarm: Alarm) {
-    cancelTimer(alarm.id);
-    const delay = Math.max(0, alarm.triggerAt - Date.now());
-    if (delay <= 0) {
-      fireAlarm(alarm.id);
-      return;
-    }
-    const timerId = setTimeout(() => fireAlarm(alarm.id), delay);
-    timers.set(alarm.id, timerId);
-  }
-
-  function cancelTimer(id: number) {
-    const timer = timers.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      timers.delete(id);
-    }
-  }
-
-  function clearAllTimers() {
-    for (const timer of timers.values()) {
-      clearTimeout(timer);
-    }
-    timers.clear();
+    if (!manager) return;
+    pi.appendEntry(CUSTOM_TYPE, manager.serialize());
   }
 
   function updateStatusBar() {
-    if (!uiCtx) return;
-    const count = alarms.filter((a) => a.status === "pending").length;
+    if (!uiCtx || !manager) return;
+    const count = manager.pendingCount;
     if (count > 0) {
-      uiCtx.ui.setStatus("alarm", uiCtx.ui.theme.fg("warning", `⏰ ${count} pending`));
+      uiCtx.ui.setStatus("alarm", uiCtx.ui.theme.fg("warning", `${count} alarm${count > 1 ? "s" : ""}`));
     } else {
       uiCtx.ui.setStatus("alarm", undefined);
     }
   }
 
-  function fireAlarm(id: number) {
-    const alarm = alarms.find((a) => a.id === id);
-    if (!alarm || alarm.status !== "pending") return;
-
+  function fireAlarm(alarm: Alarm): void {
+    if (alarm.status !== "pending") return;
     alarm.status = "fired";
-    timers.delete(id);
 
     const now = new Date();
-    const content = alarm.message;
-
     pi.sendMessage(
       {
         customType: MESSAGE_TYPE,
-        content,
+        content: alarm.message,
         display: true,
         details: {
-          alarmId: alarm.id,
+          alarmId: alarm.id.slice(0, 8),
+          alarmLabel: alarm.label,
           alarmMessage: alarm.message,
           firedAt: now.getTime(),
         },
@@ -277,56 +220,23 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar();
   }
 
-  /** Create a new alarm, schedule it, persist, and update UI */
-  function createAlarm(
-    triggerAt: number,
-    message: string,
-    expiresIn: number | "never",
-  ): Alarm {
-    const alarm: Alarm = {
-      id: nextId++,
-      message,
-      triggerAt,
-      expiresIn,
-      status: "pending",
-      createdAt: Date.now(),
-    };
-    alarms.push(alarm);
-    scheduleAlarm(alarm);
-    persistState();
-    updateStatusBar();
-    return alarm;
-  }
-
   // ── Session Lifecycle ────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
     uiCtx = ctx;
+    const mgr = getManager();
 
-    reconstructState(ctx);
-
-    const now = Date.now();
-
-    // Handle overdue alarms
-    for (const alarm of alarms) {
-      if (alarm.status !== "pending") continue;
-      const overdue = now - alarm.triggerAt;
-      if (overdue <= 0) continue;
-
-      if (alarm.expiresIn === "never") {
-        fireAlarm(alarm.id);
-      } else if (overdue <= alarm.expiresIn * 1000) {
-        fireAlarm(alarm.id);
-      } else {
-        alarm.status = "cancelled";
+    // Reconstruct alarms from persisted session entries
+    const states: AlarmState[] = [];
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && (entry as any).customType === CUSTOM_TYPE) {
+        const data = (entry as any).data as AlarmState;
+        if (data) states.push(data);
       }
     }
-
-    // Schedule remaining pending alarms
-    for (const alarm of alarms) {
-      if (alarm.status === "pending") {
-        scheduleAlarm(alarm);
-      }
+    // Use the latest state
+    if (states.length > 0) {
+      mgr.reconstruct(states[states.length - 1]);
     }
 
     persistState();
@@ -334,19 +244,19 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_tree", async (_event, ctx) => {
-    reconstructState(ctx);
-    clearAllTimers();
+    const mgr = getManager();
+    mgr.destroy();
+    manager = new AlarmManager(fireAlarm);
 
-    // On tree navigation, cancel overdue alarms (don't re-fire)
-    const now = Date.now();
-    for (const alarm of alarms) {
-      if (alarm.status === "pending") {
-        if (alarm.triggerAt <= now) {
-          alarm.status = "cancelled";
-        } else {
-          scheduleAlarm(alarm);
-        }
+    const states: AlarmState[] = [];
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && (entry as any).customType === CUSTOM_TYPE) {
+        const data = (entry as any).data as AlarmState;
+        if (data) states.push(data);
       }
+    }
+    if (states.length > 0) {
+      manager.reconstructSilent(states[states.length - 1]);
     }
 
     persistState();
@@ -354,7 +264,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => {
-    clearAllTimers();
+    manager?.destroy();
+    manager = null;
     uiCtx = null;
   });
 
@@ -448,19 +359,19 @@ export default function (pi: ExtensionAPI) {
 
       const triggerAt = now.getTime() + params.delay * 1000;
       const expiresIn = parseExpiresIn(params.expiresIn);
-      const alarm = createAlarm(triggerAt, params.message, expiresIn);
+      const alarm = mgr.setRelative(params.delay, params.message, expiresIn);
 
       return {
         content: [
           {
             type: "text",
             text:
-              `Alarm #${alarm.id} set for ${formatTriggerAt(triggerAt)} ` +
+              `Alarm #${alarm.id.slice(0, 8)} set for ${formatTriggerAt(triggerAt)} ` +
               `(${formatRemaining(triggerAt)} from now): ${params.message}` +
               (expiresIn === "never" ? " [never expires]" : ` [expires in ${expiresIn}s]`),
           },
         ],
-        details: { alarmId: alarm.id, triggerAt, message: params.message },
+        details: { alarmId: alarm.id.slice(0, 8), triggerAt, message: params.message },
       };
     },
 
@@ -476,7 +387,7 @@ export default function (pi: ExtensionAPI) {
 
     renderResult(result, _opts, theme) {
       const details = result.details as
-        | { alarmId?: number; triggerAt?: number; message?: string }
+        | { alarmId?: string; triggerAt?: number; message?: string }
         | undefined;
       if (!details?.alarmId) {
         const t = result.content[0];
@@ -597,19 +508,19 @@ export default function (pi: ExtensionAPI) {
       }
 
       const expiresIn = parseExpiresIn(params.expiresIn);
-      const alarm = createAlarm(triggerAt, params.message, expiresIn);
+      const alarm = mgr.setRelative(params.delay, params.message, expiresIn);
 
       return {
         content: [
           {
             type: "text",
             text:
-              `Alarm #${alarm.id} set for ${formatTriggerAt(triggerAt)} ` +
+              `Alarm #${alarm.id.slice(0, 8)} set for ${formatTriggerAt(triggerAt)} ` +
               `(${formatRemaining(triggerAt)} from now): ${params.message}` +
               (expiresIn === "never" ? " [never expires]" : ` [expires in ${expiresIn}s]`),
           },
         ],
-        details: { alarmId: alarm.id, triggerAt, message: params.message },
+        details: { alarmId: alarm.id.slice(0, 8), triggerAt, message: params.message },
       };
     },
 
@@ -625,7 +536,7 @@ export default function (pi: ExtensionAPI) {
 
     renderResult(result, _opts, theme) {
       const details = result.details as
-        | { alarmId?: number; triggerAt?: number; message?: string }
+        | { alarmId?: string; triggerAt?: number; message?: string }
         | undefined;
       if (!details?.alarmId) {
         const t = result.content[0];
@@ -651,18 +562,19 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
 
     async execute() {
-      const pending = alarms.filter((a) => a.status === "pending");
+      const mgr = getManager();
+      const pending = mgr.list().filter((a) => a.status === "pending");
       const text = pending.length
         ? pending
             .map(
               (a) =>
-                `#${a.id}: "${a.message}" — in ${formatRemaining(a.triggerAt)} (${formatTriggerAt(a.triggerAt)})`,
+                `#${a.id.slice(0, 8)}: "${a.message}" — in ${formatRemaining(a.triggerAt)} (${formatTriggerAt(a.triggerAt)})`,
             )
             .join("\n")
         : "No pending alarms";
       return {
         content: [{ type: "text", text }],
-        details: { pending: pending.map((a) => ({ id: a.id, message: a.message, triggerAt: a.triggerAt })) },
+        details: { pending: pending.map((a) => ({ id: a.id.slice(0, 8), message: a.message, triggerAt: a.triggerAt })) },
       };
     },
 
@@ -680,7 +592,7 @@ export default function (pi: ExtensionAPI) {
       let text = theme.fg("muted", `${pending.length} alarm(s):`);
       const show = expanded ? pending : pending.slice(0, 5);
       for (const a of show) {
-        text += `\n  ${theme.fg("accent", `#${a.id}`)} ${theme.fg("text", a.message)} ${theme.fg("dim", formatTriggerAt(a.triggerAt))}`;
+        text += `\n  ${theme.fg("accent", `#${a.id.slice(0, 8)}`)} ${theme.fg("text", a.message)} ${theme.fg("dim", formatTriggerAt(a.triggerAt))}`;
       }
       if (!expanded && pending.length > 5) {
         text += theme.fg("dim", `\n  ... ${pending.length - 5} more`);
@@ -694,64 +606,64 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "alarm_cancel",
     label: "Alarm Cancel",
-    description: "Cancel a pending alarm by its ID. Get the ID from alarm_list.",
-    promptSnippet: "Cancel an alarm by ID",
+    description: "Cancel an active alarm or timer by its id or label. Use alarm_list to find alarm ids.",
+    promptSnippet: "Cancel alarm: alarm_cancel(alarm_id="...") or alarm_cancel(label="...")",
     promptGuidelines: [
-      "Use alarm_list first to find the alarm ID, then use alarm_cancel with that ID.",
+      "Use alarm_cancel when the user no longer needs a scheduled alarm or timer.",
     ],
     parameters: Type.Object({
-      id: Type.Number({ description: "Alarm ID to cancel" }),
+      alarm_id: Type.Optional(Type.String({ description: "ID of the alarm to cancel (from alarm_list)." })),
+      label: Type.Optional(Type.String({ description: "Cancel all alarms with this label." })),
     }),
 
     async execute(_toolCallId, params) {
-      const alarm = alarms.find((a) => a.id === params.id);
-      if (!alarm) {
+      const mgr = getManager();
+
+      if (params.alarm_id) {
+        // Find by prefix match (agent sees truncated IDs)
+        const matches = mgr.list().filter((a) => a.id.startsWith(params.alarm_id));
+        if (matches.length === 0) {
+          return { content: [{ type: "text", text: `Alarm "${params.alarm_id}" not found` }], details: { error: "not found" } };
+        }
+        mgr.cancel(matches[0].id);
+        persistState();
+        updateStatusBar();
         return {
-          content: [{ type: "text", text: `Alarm #${params.id} not found` }],
-          details: { error: "not found" },
-        };
-      }
-      if (alarm.status !== "pending") {
-        return {
-          content: [
-            { type: "text", text: `Alarm #${alarm.id} is already ${alarm.status}` },
-          ],
-          details: { error: "not pending" },
+          content: [{ type: "text", text: `Cancelled alarm "${params.alarm_id.slice(0, 8)}": ${matches[0].message}` }],
+          details: { id: params.alarm_id.slice(0, 8) },
         };
       }
 
-      alarm.status = "cancelled";
-      cancelTimer(alarm.id);
-      persistState();
-      updateStatusBar();
+      if (params.label) {
+        const count = mgr.cancelByLabel(params.label);
+        persistState();
+        updateStatusBar();
+        if (count > 0) {
+          return { content: [{ type: "text", text: `Cancelled ${count} alarm(s) with label "${params.label}".` }], details: { count } };
+        }
+        return { content: [{ type: "text", text: `No alarms found with label "${params.label}".` }], details: {} };
+      }
 
-      return {
-        content: [{ type: "text", text: `Alarm #${alarm.id} cancelled: "${alarm.message}"` }],
-        details: { id: alarm.id },
-      };
+      return { content: [{ type: "text", text: "Error: provide alarm_id or label to cancel." }], details: { error: "missing param" } };
     },
 
     renderCall(args, theme) {
       let text = theme.fg("toolTitle", theme.bold("alarm_cancel"));
-      text += "\n  " + theme.fg("dim", "id: ") + theme.fg("accent", `#${args.id}`);
+      if (args.alarm_id) text += "\n  " + theme.fg("dim", "id: ") + theme.fg("accent", `#${args.alarm_id?.slice(0, 8) ?? "?"}`);
+      if (args.label) text += "\n  " + theme.fg("dim", "label: ") + theme.fg("muted", args.label);
       return new Text(text, 0, 0);
     },
 
     renderResult(result, _opts, theme) {
-      const details = result.details as { error?: string; id?: number } | undefined;
+      const details = result.details as { error?: string; id?: string; count?: number } | undefined;
       if (details?.error) {
         const t = result.content[0];
-        return new Text(
-          theme.fg("error", t?.type === "text" ? t.text : "Error"),
-          0,
-          0,
-        );
+        return new Text(theme.fg("error", t?.type === "text" ? t.text : "Error"), 0, 0);
       }
-      return new Text(
-        theme.fg("success", "✓ Cancelled ") + theme.fg("dim", `#${details?.id}`),
-        0,
-        0,
-      );
+      if (details?.count !== undefined) {
+        return new Text(theme.fg("success", `Cancelled ${details.count} alarm(s)`), 0, 0);
+      }
+      return new Text(theme.fg("success", `Cancelled #${details?.id ?? "?"}`), 0, 0);
     },
   });
 
@@ -791,9 +703,13 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseRelativeTime(input);
       if (parsed) {
         const message = parsed.rest || "Alarm";
-        const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
+        const mgr = getManager();
+        const seconds = Math.round((parsed.triggerAt - Date.now()) / 1000);
+        const alarm = mgr.setRelative(seconds, message, DEFAULT_EXPIRES_IN_SEC);
+        persistState();
+        updateStatusBar();
         ctx.ui.notify(
-          `⏰ Alarm #${alarm.id} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
+          `Alarm #${alarm.id.slice(0, 8)} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
           "info",
         );
         return;
@@ -823,9 +739,12 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseAbsoluteTime(input);
       if (parsed) {
         const message = parsed.rest || "Alarm";
-        const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
+        const mgr = getManager();
+        const alarm = mgr.setAbsolute(new Date(parsed.triggerAt), message, DEFAULT_EXPIRES_IN_SEC);
+        persistState();
+        updateStatusBar();
         ctx.ui.notify(
-          `⏰ Alarm #${alarm.id} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
+          `Alarm #${alarm.id.slice(0, 8)} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
           "info",
         );
         return;
@@ -846,13 +765,14 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("alarm-list", {
     description: "List all pending alarms",
     handler: async (_args, ctx) => {
-      const pending = alarms.filter((a) => a.status === "pending");
+      const mgr = getManager();
+      const pending = mgr.list().filter((a) => a.status === "pending");
       if (pending.length === 0) {
         ctx.ui.notify("No pending alarms", "info");
         return;
       }
       const lines = pending.map(
-        (a) => `#${a.id}: "${a.message}" — in ${formatRemaining(a.triggerAt)}`,
+        (a) => `#${a.id.slice(0, 8)}: "${a.message}" — in ${formatRemaining(a.triggerAt)}`,
       );
       ctx.ui.notify(lines.join("\n"), "info");
     },
@@ -868,23 +788,17 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const id = parseInt(input, 10);
-      if (isNaN(id)) {
-        ctx.ui.notify("Usage: /alarm-cancel <id>", "warning");
+      const mgr = getManager();
+      const matches = mgr.list().filter((a) => a.id.startsWith(input));
+      if (matches.length === 0) {
+        ctx.ui.notify(`No pending alarm matching "${input}"`, "warning");
         return;
       }
 
-      const alarm = alarms.find((a) => a.id === id);
-      if (!alarm || alarm.status !== "pending") {
-        ctx.ui.notify(`Alarm #${id} not found or not pending`, "warning");
-        return;
-      }
-
-      alarm.status = "cancelled";
-      cancelTimer(id);
+      mgr.cancel(matches[0].id);
       persistState();
       updateStatusBar();
-      ctx.ui.notify(`Alarm #${id} cancelled`, "info");
+      ctx.ui.notify(`Cancelled #${matches[0].id.slice(0, 8)}: ${matches[0].message}`, "info");
     },
   });
 
@@ -892,14 +806,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("alarm-clear", {
     description: "Cancel all pending alarms",
     handler: async (_args, ctx) => {
-      let count = 0;
-      for (const a of alarms) {
-        if (a.status === "pending") {
-          a.status = "cancelled";
-          cancelTimer(a.id);
-          count++;
-        }
-      }
+      const mgr = getManager();
+      const count = mgr.cancelAll();
       if (count === 0) {
         ctx.ui.notify("No pending alarms to clear", "info");
         return;
@@ -914,7 +822,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerMessageRenderer(MESSAGE_TYPE, (message, _options, theme) => {
     const details = message.details as
-      | { alarmId?: number; firedAt?: number }
+      | { alarmId?: string; firedAt?: number }
       | undefined;
     const content = typeof message.content === "string" ? message.content : "";
 
