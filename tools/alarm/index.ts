@@ -359,6 +359,7 @@ export default function (pi: ExtensionAPI) {
 
       const triggerAt = now.getTime() + params.delay * 1000;
       const expiresIn = parseExpiresIn(params.expiresIn);
+      const mgr = getManager();
       const alarm = mgr.setRelative(params.delay, params.message, expiresIn, params.label);
       persistState();
       updateStatusBar();
@@ -512,6 +513,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const expiresIn = parseExpiresIn(params.expiresIn);
+      const mgr = getManager();
       const alarm = mgr.setAbsolute(new Date(triggerAt), params.message, expiresIn, params.label);
       persistState();
       updateStatusBar();
