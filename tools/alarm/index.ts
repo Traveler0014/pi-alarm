@@ -3,8 +3,8 @@
  *
  * Tools (agent-facing, KISS):
  * - `alarm_now`   — get current date/time (Node.js Date, cross-platform)
- * - `alarm_set`    — create a timed alarm (relative delay in seconds)
- * - `alarm_schedule` — create a timed alarm (absolute ISO 8601 timestamp)
+ * - `alarm_set`    — create a timed alarm (absolute ISO 8601 timestamp)
+ * - `alarm_wait`   — create a timed alarm (relative seconds from now)
  * - `alarm_list`   — list pending alarms
  * - `alarm_cancel` — cancel an alarm by ID
  *
@@ -302,18 +302,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── Tool: alarm-set (relative delay) ────────────────────────────────
+  // ── Tool: alarm_wait (relative) ───────────────────────────────────
 
   pi.registerTool({
-    name: "alarm_set",
-    label: "Alarm Set",
+    name: "alarm_wait",
+    label: "Alarm Wait",
     description:
-      "Create a timed alarm with a relative delay in seconds from now. Use alarm_now tool first to check the current time. For absolute times, use alarm_schedule.",
-    promptSnippet: "Create a timed alarm (relative delay in seconds)",
+      "Wait for a specified duration before being re-awakened. Use alarm_now tool first to check the current time. For absolute times, use alarm_set.",
+    promptSnippet: "Wait: alarm_wait(seconds=N, message?, label?, expiresIn?)",
     promptGuidelines: [
-      "Use alarm_now tool to get the current time before calling alarm_set.",
-      "Use alarm_set for relative times (delay in seconds from now).",
-      "Use alarm_schedule for absolute times (ISO 8601 timestamp).",
+      "Use alarm_now tool to get the current time before calling alarm_wait.",
+      "Use alarm_wait for relative times (delay in seconds from now).",
+      "Use alarm_set for absolute times (ISO 8601 timestamp).",
       "Use alarm_list to check pending alarms. Use alarm_cancel to cancel one.",
     ],
     parameters: Type.Object({
@@ -376,7 +376,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      let text = theme.fg("toolTitle", theme.bold("alarm_set"));
+      let text = theme.fg("toolTitle", theme.bold("alarm_wait"));
       text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
       text += "\n  " + theme.fg("dim", "delay: ") + theme.fg("accent", `${args.delay}s`);
       if (args.expiresIn) {
@@ -403,14 +403,14 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── Tool: alarm_schedule (absolute ISO 8601) ───────────────────────
+  // ── Tool: alarm_set (absolute) ────────────────────────────────────
 
   pi.registerTool({
-    name: "alarm_schedule",
-    label: "Alarm Schedule",
+    name: "alarm_set",
+    label: "Alarm Set",
     description:
-      "Create a timed alarm at a specific absolute time. The timestamp must be ISO 8601 format and in the future. Use alarm_now tool first to check current time.",
-    promptSnippet: "Create a timed alarm (absolute ISO 8601 timestamp)",
+      "Schedule an alarm at an absolute date/time (ISO 8601). When the alarm fires, a message will be injected to wake you up. Use alarm_now to get the current time before computing the target time.",
+    promptSnippet: "Set alarm: alarm_set(at="ISO datetime", message?, label?, expiresIn?)",
     promptGuidelines: [
       "Call alarm_now first to get the current time and local offset (e.g., +08:00).",
       "Use the offset from alarm_now to construct the timestamp. e.g., if alarm_now shows +08:00 and the user wants 5pm local: '2026-06-25T17:00:00+08:00'.",
@@ -525,7 +525,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      let text = theme.fg("toolTitle", theme.bold("alarm_schedule"));
+      let text = theme.fg("toolTitle", theme.bold("alarm_set"));
       text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
       text += "\n  " + theme.fg("dim", "at: ") + theme.fg("accent", args.at);
       if (args.expiresIn) {
@@ -682,7 +682,7 @@ export default function (pi: ExtensionAPI) {
       if (ctx.isIdle()) {
         pi.sendUserMessage(
           `The user wants to set an alarm: "${input}". ` +
-          `Please use alarm_now to check the current time, then use alarm_set or alarm_schedule.`,
+          `Please use alarm_now to check the current time, then use alarm_wait or alarm_set.`,
         );
       } else {
         ctx.ui.notify("Agent is busy, try again in a moment", "warning");
@@ -718,7 +718,7 @@ export default function (pi: ExtensionAPI) {
       if (ctx.isIdle()) {
         pi.sendUserMessage(
           `The user wants to set an alarm with relative time: "${input}". ` +
-          `Please use alarm_now to check the current time, then use alarm_set.`,
+          `Please use alarm_now to check the current time, then use alarm_wait.`,
         );
       } else {
         ctx.ui.notify("Agent is busy, try again in a moment", "warning");
@@ -753,7 +753,7 @@ export default function (pi: ExtensionAPI) {
       if (ctx.isIdle()) {
         pi.sendUserMessage(
           `The user wants to set an alarm at a specific time: "${input}". ` +
-          `Please use alarm_now to check the current time, then use alarm_schedule.`,
+          `Please use alarm_now to check the current time, then use alarm_set.`,
         );
       } else {
         ctx.ui.notify("Agent is busy, try again in a moment", "warning");

@@ -2,7 +2,7 @@
  * AlarmManager — core alarm/timer logic.
  *
  * Responsibilities:
- *  - Create relative (alarm_set) and absolute (alarm_schedule) timers
+ *  - Create relative (alarm_wait) and absolute (alarm_set) timers
  *  - Cancel timers by id or label
  *  - List active alarms
  *  - Serialize state for session persistence
