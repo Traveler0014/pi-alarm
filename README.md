@@ -9,7 +9,7 @@ Timed alarms and reminders extension for pi coding agent
 
 | Extension | Providers | Commands | Tools |
 |-----------|-----------|----------|-------|
-| [tools/alarm](./tools/alarm) | — | `/alarm-set`, `/alarm-in`, `/alarm-at`, `/alarm-list`, `/alarm-cancel`, `/alarm-clear` | `alarm_now`, `alarm_set`, `alarm_schedule`, `alarm_list`, `alarm_cancel` |
+| [tools/alarm](./tools/alarm) | — | `/alarm-set`, `/alarm-in`, `/alarm-at`, `/alarm-list`, `/alarm-cancel`, `/alarm-clear` | `alarm_now`, `alarm_wait`, `alarm_set`, `alarm_list`, `alarm_cancel` |
 
 ### [tools/alarm](./tools/alarm)
 
@@ -21,16 +21,16 @@ Timed alarms and reminders for pi — agent-callable tools and user slash comman
 - `/alarm-in` — Set a timed alarm with relative delay — /alarm-in <delay> <msg>
 - `/alarm-at` — Set a timed alarm at an absolute time — /alarm-at <time> <msg>
 - `/alarm-list` — List all pending alarms
-- `/alarm-cancel` — Cancel an alarm by ID — /alarm-cancel <id>
+- `/alarm-cancel` — Cancel an alarm — interactive selection or quick mode: /alarm-cancel <id>
 - `/alarm-clear` — Cancel all pending alarms
 
 **Tools:**
 
 - `alarm_now` — Get the current date and time. Call this before setting alarms or scheduling tasks to determine the correct time.
-- `alarm_set` — Create a timed alarm with a relative delay in seconds from now. Use alarm_now tool first to check the current time. For absolute times, use alarm_schedule.
-- `alarm_schedule` — Create a timed alarm at a specific absolute time. The timestamp must be ISO 8601 format and in the future. Use alarm_now tool first to check current time.
+- `alarm_wait` — Wait for a specified duration before being re-awakened. Use alarm_now tool first to check the current time. For absolute times, use alarm_set.
+- `alarm_set` — Schedule an alarm at an absolute date/time (ISO 8601). When the alarm fires, a message will be injected to wake you up. Use alarm_now to get the current time before computing the target time.
 - `alarm_list` — List all pending alarms.
-- `alarm_cancel` — Cancel a pending alarm by its ID. Get the ID from alarm_list.
+- `alarm_cancel` — Cancel an active alarm or timer by its id or label. Use alarm_list to find alarm ids.
 
 ---
 
