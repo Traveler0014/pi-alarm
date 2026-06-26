@@ -312,11 +312,11 @@ export default function (pi: ExtensionAPI) {
     name: "alarm_wait",
     label: "Alarm Wait",
     description:
-      "Wait for a specified duration before being re-awakened. Use alarm_now tool first to check the current time. For absolute times, use alarm_set.",
-    promptSnippet: "Wait: alarm_wait(seconds=N, message?, label?, expiresIn?)",
+      "Schedule a reminder alarm using a relative delay in seconds. When triggered, a message is injected into the conversation.",
+    promptSnippet: "Set alarm (relative): alarm_wait(delay=N, message, label?, expiresIn?)",
     promptGuidelines: [
-      "Use alarm_now tool to get the current time before calling alarm_wait.",
-      "Use alarm_wait for relative times (delay in seconds from now).",
+      "Use alarm_now to get the current time before calling alarm_wait.",
+      "Use alarm_wait for relative times (delay in seconds from now) — only for user-facing reminders.",
       "Use alarm_set for absolute times (ISO 8601 timestamp).",
       "Use alarm_list to check pending alarms. Use alarm_cancel to cancel one.",
     ],
@@ -420,8 +420,8 @@ export default function (pi: ExtensionAPI) {
     name: "alarm_set",
     label: "Alarm Set",
     description:
-      "Schedule an alarm at an absolute date/time (ISO 8601). When the alarm fires, a message will be injected to wake you up. Use alarm_now to get the current time before computing the target time.",
-    promptSnippet: "Set alarm: alarm_set(at='ISO datetime', message?, label?, expiresIn?)",
+      "Schedule a reminder alarm using an absolute ISO 8601 timestamp. When triggered, a message is injected into the conversation.",
+    promptSnippet: "Set alarm (absolute): alarm_set(at='ISO datetime', message, label?, expiresIn?)",
     promptGuidelines: [
       "Call alarm_now first to get the current time and local offset (e.g., +08:00).",
       "Use the offset from alarm_now to construct the timestamp. e.g., if alarm_now shows +08:00 and the user wants 5pm local: '2026-06-25T17:00:00+08:00'.",
