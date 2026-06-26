@@ -28,6 +28,7 @@ import { Type } from "typebox";
 interface Alarm {
   id: number;
   message: string;
+  label?: string;
   triggerAt: number; // Unix ms
   expiresIn: number | "never"; // Seconds after triggerAt; restore beyond → discard
   status: "pending" | "fired" | "cancelled";
@@ -171,12 +172,16 @@ function formatTriggerAt(triggerAt: number): string {
 
 function formatRemaining(triggerAt: number): string {
   const remaining = Math.max(0, Math.ceil((triggerAt - Date.now()) / 1000));
-  const h = Math.floor(remaining / 3600);
+  const d = Math.floor(remaining / 86400);
+  const h = Math.floor((remaining % 86400) / 3600);
   const m = Math.floor((remaining % 3600) / 60);
   const s = remaining % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0 || d > 0) parts.push(`${h}h`);
+  if (m > 0 || h > 0 || d > 0) parts.push(`${m}m`);
+  parts.push(`${s}s`);
+  return parts.join(" ");
 }
 
 // ── Extension Entry ────────────────────────────────────────────────────────
@@ -239,11 +244,24 @@ export default function (pi: ExtensionAPI) {
     timers.clear();
   }
 
+  function cancelByLabel(label: string): number {
+    let count = 0;
+    for (const alarm of alarms) {
+      if (alarm.status === "pending" && alarm.label === label) {
+        alarm.status = "cancelled";
+        cancelTimer(alarm.id);
+        count++;
+      }
+    }
+    if (count > 0) { persistState(); updateStatusBar(); }
+    return count;
+  }
+
   function updateStatusBar() {
     if (!uiCtx) return;
     const count = alarms.filter((a) => a.status === "pending").length;
     if (count > 0) {
-      uiCtx.ui.setStatus("alarm", uiCtx.ui.theme.fg("warning", `⏰ ${count} pending`));
+      uiCtx.ui.setStatus("alarm", uiCtx.ui.theme.fg("warning", `${count} alarm${count > 1 ? "s" : ""}`));
     } else {
       uiCtx.ui.setStatus("alarm", undefined);
     }
@@ -282,10 +300,12 @@ export default function (pi: ExtensionAPI) {
     triggerAt: number,
     message: string,
     expiresIn: number | "never",
+    label?: string,
   ): Alarm {
     const alarm: Alarm = {
       id: nextId++,
       message,
+      label,
       triggerAt,
       expiresIn,
       status: "pending",
@@ -414,6 +434,11 @@ export default function (pi: ExtensionAPI) {
             "Expiry tolerance on session restore: number of seconds or 'never'. Default: '300' (5 min). Use 'never' to always fire regardless of delay.",
         }),
       ),
+      label: Type.Optional(
+        Type.String({
+          description: "Short label to identify this alarm (useful for batch cancellation).",
+        }),
+      ),
     }),
 
     async execute(_toolCallId, params) {
@@ -448,7 +473,7 @@ export default function (pi: ExtensionAPI) {
 
       const triggerAt = now.getTime() + params.delay * 1000;
       const expiresIn = parseExpiresIn(params.expiresIn);
-      const alarm = createAlarm(triggerAt, params.message, expiresIn);
+      const alarm = createAlarm(triggerAt, params.message, expiresIn, params.label);
 
       return {
         content: [
@@ -457,16 +482,18 @@ export default function (pi: ExtensionAPI) {
             text:
               `Alarm #${alarm.id} set for ${formatTriggerAt(triggerAt)} ` +
               `(${formatRemaining(triggerAt)} from now): ${params.message}` +
+              (params.label ? ` [${params.label}]` : "") +
               (expiresIn === "never" ? " [never expires]" : ` [expires in ${expiresIn}s]`),
           },
         ],
-        details: { alarmId: alarm.id, triggerAt, message: params.message },
+        details: { alarmId: alarm.id, triggerAt, message: params.message, label: params.label },
       };
     },
 
     renderCall(args, theme) {
       let text = theme.fg("toolTitle", theme.bold("alarm_set"));
       text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
+      if (args.label) text += "\n  " + theme.fg("dim", "label: ") + theme.fg("muted", args.label);
       text += "\n  " + theme.fg("dim", "delay: ") + theme.fg("accent", `${args.delay}s`);
       if (args.expiresIn) {
         text += "\n  " + theme.fg("dim", "expiresIn: ") + theme.fg("muted", args.expiresIn);
@@ -517,6 +544,11 @@ export default function (pi: ExtensionAPI) {
         Type.String({
           description:
             "Expiry tolerance on session restore: number of seconds or 'never'. Default: '300' (5 min). Use 'never' to always fire regardless of delay.",
+        }),
+      ),
+      label: Type.Optional(
+        Type.String({
+          description: "Short label to identify this alarm (useful for batch cancellation).",
         }),
       ),
     }),
@@ -597,7 +629,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const expiresIn = parseExpiresIn(params.expiresIn);
-      const alarm = createAlarm(triggerAt, params.message, expiresIn);
+      const alarm = createAlarm(triggerAt, params.message, expiresIn, params.label);
 
       return {
         content: [
@@ -606,16 +638,18 @@ export default function (pi: ExtensionAPI) {
             text:
               `Alarm #${alarm.id} set for ${formatTriggerAt(triggerAt)} ` +
               `(${formatRemaining(triggerAt)} from now): ${params.message}` +
+              (params.label ? ` [${params.label}]` : "") +
               (expiresIn === "never" ? " [never expires]" : ` [expires in ${expiresIn}s]`),
           },
         ],
-        details: { alarmId: alarm.id, triggerAt, message: params.message },
+        details: { alarmId: alarm.id, triggerAt, message: params.message, label: params.label },
       };
     },
 
     renderCall(args, theme) {
       let text = theme.fg("toolTitle", theme.bold("alarm_schedule"));
       text += "\n  " + theme.fg("dim", "message: ") + theme.fg("text", `"${args.message}"`);
+      if (args.label) text += "\n  " + theme.fg("dim", "label: ") + theme.fg("muted", args.label);
       text += "\n  " + theme.fg("dim", "at: ") + theme.fg("accent", args.at);
       if (args.expiresIn) {
         text += "\n  " + theme.fg("dim", "expiresIn: ") + theme.fg("muted", args.expiresIn);
@@ -694,61 +728,74 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "alarm_cancel",
     label: "Alarm Cancel",
-    description: "Cancel a pending alarm by its ID. Get the ID from alarm_list.",
-    promptSnippet: "Cancel an alarm by ID",
+    description: "Cancel an active alarm or timer by its id or label. Use alarm_list to find alarm ids.",
+    promptSnippet: "Cancel alarm: alarm_cancel(alarm_id=...) or alarm_cancel(label=...)",
     promptGuidelines: [
-      "Use alarm_list first to find the alarm ID, then use alarm_cancel with that ID.",
+      "Use alarm_cancel when the user no longer needs a scheduled alarm or timer.",
     ],
     parameters: Type.Object({
-      id: Type.Number({ description: "Alarm ID to cancel" }),
+      alarm_id: Type.Optional(Type.Number({ description: "ID of the alarm to cancel (from alarm_list)." })),
+      label: Type.Optional(Type.String({ description: "Cancel all alarms with this label." })),
     }),
 
     async execute(_toolCallId, params) {
-      const alarm = alarms.find((a) => a.id === params.id);
-      if (!alarm) {
+      if (params.alarm_id !== undefined) {
+        const alarm = alarms.find((a) => a.id === params.alarm_id);
+        if (!alarm) {
+          return { content: [{ type: "text", text: `Alarm #${params.alarm_id} not found` }], details: { error: "not found" } };
+        }
+        if (alarm.status !== "pending") {
+          return { content: [{ type: "text", text: `Alarm #${alarm.id} is already ${alarm.status}` }], details: { error: "not pending" } };
+        }
+        alarm.status = "cancelled";
+        cancelTimer(alarm.id);
+        persistState();
+        updateStatusBar();
         return {
-          content: [{ type: "text", text: `Alarm #${params.id} not found` }],
-          details: { error: "not found" },
-        };
-      }
-      if (alarm.status !== "pending") {
-        return {
-          content: [
-            { type: "text", text: `Alarm #${alarm.id} is already ${alarm.status}` },
-          ],
-          details: { error: "not pending" },
+          content: [{ type: "text", text: `Alarm #${alarm.id} cancelled: "${alarm.message}"` }],
+          details: { id: alarm.id, cancelled: [alarm.id] },
         };
       }
 
-      alarm.status = "cancelled";
-      cancelTimer(alarm.id);
-      persistState();
-      updateStatusBar();
+      if (params.label) {
+        const count = cancelByLabel(params.label);
+        if (count > 0) {
+          return {
+            content: [{ type: "text", text: `Cancelled ${count} alarm(s) with label "${params.label}".` }],
+            details: { cancelled: [params.label], count },
+          };
+        }
+        return {
+          content: [{ type: "text", text: `No alarms found with label "${params.label}".` }],
+          details: { cancelled: [] as string[] },
+        };
+      }
 
       return {
-        content: [{ type: "text", text: `Alarm #${alarm.id} cancelled: "${alarm.message}"` }],
-        details: { id: alarm.id },
+        content: [{ type: "text", text: "Error: provide alarm_id or label to cancel." }],
+        details: { error: "missing param" },
       };
     },
 
     renderCall(args, theme) {
       let text = theme.fg("toolTitle", theme.bold("alarm_cancel"));
-      text += "\n  " + theme.fg("dim", "id: ") + theme.fg("accent", `#${args.id}`);
+      if (args.alarm_id !== undefined) {
+        text += "\n  " + theme.fg("dim", "id: ") + theme.fg("accent", `#${args.alarm_id}`);
+      }
+      if (args.label) {
+        text += "\n  " + theme.fg("dim", "label: ") + theme.fg("muted", args.label);
+      }
       return new Text(text, 0, 0);
     },
 
     renderResult(result, _opts, theme) {
-      const details = result.details as { error?: string; id?: number } | undefined;
+      const details = result.details as { error?: string; cancelled?: (string | number)[] } | undefined;
       if (details?.error) {
         const t = result.content[0];
-        return new Text(
-          theme.fg("error", t?.type === "text" ? t.text : "Error"),
-          0,
-          0,
-        );
+        return new Text(theme.fg("error", t?.type === "text" ? t.text : "Error"), 0, 0);
       }
       return new Text(
-        theme.fg("success", "✓ Cancelled ") + theme.fg("dim", `#${details?.id}`),
+        theme.fg("success", `Cancelled ${details?.cancelled?.length ?? 0} alarm(s)`),
         0,
         0,
       );
@@ -860,31 +907,58 @@ export default function (pi: ExtensionAPI) {
 
   // /alarm-cancel <id>
   pi.registerCommand("alarm-cancel", {
-    description: "Cancel an alarm by ID — /alarm-cancel <id>",
+    description: "Cancel an alarm — interactive selection or quick mode: /alarm-cancel <id>",
     handler: async (args, ctx) => {
       const input = args.trim();
-      if (!input) {
-        ctx.ui.notify("Usage: /alarm-cancel <id>", "warning");
+
+      // Quick mode: ID provided
+      if (input) {
+        const id = parseInt(input, 10);
+        if (isNaN(id)) {
+          ctx.ui.notify("Usage: /alarm-cancel <id>", "warning");
+          return;
+        }
+        const alarm = alarms.find((a) => a.id === id);
+        if (!alarm || alarm.status !== "pending") {
+          ctx.ui.notify(`Alarm #${id} not found or not pending`, "warning");
+          return;
+        }
+        alarm.status = "cancelled";
+        cancelTimer(id);
+        persistState();
+        updateStatusBar();
+        ctx.ui.notify(`Alarm #${id} cancelled`, "info");
         return;
       }
 
-      const id = parseInt(input, 10);
-      if (isNaN(id)) {
-        ctx.ui.notify("Usage: /alarm-cancel <id>", "warning");
+      // Interactive mode: select from pending list
+      const pending = alarms.filter((a) => a.status === "pending");
+      if (pending.length === 0) {
+        ctx.ui.notify("No pending alarms.", "info");
         return;
       }
 
-      const alarm = alarms.find((a) => a.id === id);
+      const choices = pending.map((a) =>
+        `#${a.id} in ${formatRemaining(a.triggerAt)}` +
+        (a.label ? ` [${a.label}]` : "") +
+        (a.message ? ` — ${a.message}` : "")
+      );
+      const choice = await ctx.ui.select("Select alarm to cancel:", choices);
+      if (choice === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
+      const match = choice.match(/#(\d+)/);
+      if (!match) { ctx.ui.notify("Failed to parse alarm ID.", "warning"); return; }
+      const selectedId = parseInt(match[1]);
+      const alarm = alarms.find((a) => a.id === selectedId);
       if (!alarm || alarm.status !== "pending") {
-        ctx.ui.notify(`Alarm #${id} not found or not pending`, "warning");
+        ctx.ui.notify(`Alarm #${selectedId} not found or not pending`, "warning");
         return;
       }
 
       alarm.status = "cancelled";
-      cancelTimer(id);
+      cancelTimer(selectedId);
       persistState();
       updateStatusBar();
-      ctx.ui.notify(`Alarm #${id} cancelled`, "info");
+      ctx.ui.notify(`Cancelled #${selectedId}: ${alarm.message}`, "info");
     },
   });
 
@@ -892,17 +966,28 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("alarm-clear", {
     description: "Cancel all pending alarms",
     handler: async (_args, ctx) => {
-      let count = 0;
-      for (const a of alarms) {
-        if (a.status === "pending") {
-          a.status = "cancelled";
-          cancelTimer(a.id);
-          count++;
-        }
-      }
-      if (count === 0) {
-        ctx.ui.notify("No pending alarms to clear", "info");
+      const pending = alarms.filter((a) => a.status === "pending");
+      if (pending.length === 0) {
+        ctx.ui.notify("No pending alarms to clear.", "info");
         return;
+      }
+
+      // Show summary and confirm
+      const summary =
+        `${pending.length} alarm(s) pending:` +
+        pending.slice(0, 5).map((a) =>
+          `\n  #${a.id} — ${a.message || "(no message)"}`
+        ).join("") +
+        (pending.length > 5 ? `\n  ... and ${pending.length - 5} more` : "");
+
+      const confirmed = await ctx.ui.confirm("Clear all alarms?", summary);
+      if (!confirmed) { ctx.ui.notify("Cancelled.", "info"); return; }
+
+      let count = 0;
+      for (const a of pending) {
+        a.status = "cancelled";
+        cancelTimer(a.id);
+        count++;
       }
       persistState();
       updateStatusBar();
