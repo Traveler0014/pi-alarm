@@ -810,7 +810,15 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const input = args.trim();
       if (!input) {
-        ctx.ui.notify("Usage: /alarm-set <natural language description>", "warning");
+        ctx.ui.notify(
+          [
+            "Usage: /alarm-set <natural language>",
+            "  Examples:",
+            "    /alarm-set remind me to check logs in 10 minutes",
+            "    /alarm-set 提醒我一小时后检查构建状态",
+          ].join("\n"),
+          "warning",
+        );
         return;
       }
 
@@ -831,7 +839,17 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const input = args.trim();
       if (!input) {
-        ctx.ui.notify("Usage: /alarm-in <delay> <msg>  (e.g. 5m, 1h30m, 300s)", "warning");
+        ctx.ui.notify(
+          [
+            "Usage: /alarm-in <delay> <message>",
+            "",
+            "  Delay formats:  30s | 5m | 1h30m | 2h15m30s | 300 (bare seconds)",
+            "  Examples:",
+            "    /alarm-in 10m Check build logs",
+            "    /alarm-in 1h30m Take a break",
+          ].join("\n"),
+          "warning",
+        );
         return;
       }
 
@@ -840,7 +858,7 @@ export default function (pi: ExtensionAPI) {
         const message = parsed.rest || "Alarm";
         const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
         ctx.ui.notify(
-          `⏰ Alarm #${alarm.id} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
+          `Alarm #${alarm.id} set in ${formatRemaining(parsed.triggerAt)}: ${message}`,
           "info",
         );
         return;
@@ -863,7 +881,17 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const input = args.trim();
       if (!input) {
-        ctx.ui.notify("Usage: /alarm-at <time> <msg>  (e.g. 14:30, tomorrow 9:00, 2026-06-26T14:30:00Z)", "warning");
+        ctx.ui.notify(
+          [
+            "Usage: /alarm-at <time> <message>",
+            "",
+            "  Time formats:  14:30 | 2:30pm | tomorrow 9:00 | 2026-06-26T14:30:00Z",
+            "  Examples:",
+            "    /alarm-at 14:30 Team meeting",
+            "    /alarm-at tomorrow 9:00 Deploy to production",
+          ].join("\n"),
+          "warning",
+        );
         return;
       }
 
@@ -872,7 +900,7 @@ export default function (pi: ExtensionAPI) {
         const message = parsed.rest || "Alarm";
         const alarm = createAlarm(parsed.triggerAt, message, DEFAULT_EXPIRES_IN_SEC);
         ctx.ui.notify(
-          `⏰ Alarm #${alarm.id} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
+          `Alarm #${alarm.id} set for ${formatTriggerAt(parsed.triggerAt)}: ${message}`,
           "info",
         );
         return;
@@ -895,39 +923,63 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const pending = alarms.filter((a) => a.status === "pending");
       if (pending.length === 0) {
-        ctx.ui.notify("No pending alarms", "info");
+        ctx.ui.notify("No pending alarms.", "info");
         return;
       }
-      const lines = pending.map(
-        (a) => `#${a.id}: "${a.message}" — in ${formatRemaining(a.triggerAt)}`,
-      );
+      const lines = pending.map((a) => {
+        const label = a.label ? ` [${a.label}]` : "";
+        return `#${a.id}${label} in ${formatRemaining(a.triggerAt)} — ${a.message || "(no message)"}`;
+      });
       ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 
-  // /alarm-cancel <id>
+  // /alarm-cancel <id> — interactive selection or quick mode
   pi.registerCommand("alarm-cancel", {
     description: "Cancel an alarm — interactive selection or quick mode: /alarm-cancel <id>",
     handler: async (args, ctx) => {
       const input = args.trim();
 
-      // Quick mode: ID provided
+      // Quick mode: ID or label provided
       if (input) {
-        const id = parseInt(input, 10);
-        if (isNaN(id)) {
-          ctx.ui.notify("Usage: /alarm-cancel <id>", "warning");
+        const pending = alarms.filter((a) => a.status === "pending");
+        // Try exact ID match first
+        const byId = pending.find((a) => String(a.id) === input);
+        // Then prefix match
+        const byPrefix = pending.filter((a) => String(a.id).startsWith(input));
+        // Then label match
+        const byLabel = pending.filter((a) => a.label === input);
+
+        if (byId) {
+          byId.status = "cancelled";
+          cancelTimer(byId.id);
+          persistState();
+          updateStatusBar();
+          const label = byId.label ? ` [${byId.label}]` : "";
+          ctx.ui.notify(`Cancelled #${byId.id}${label}: ${byId.message}`, "info");
           return;
         }
-        const alarm = alarms.find((a) => a.id === id);
-        if (!alarm || alarm.status !== "pending") {
-          ctx.ui.notify(`Alarm #${id} not found or not pending`, "warning");
+
+        if (byLabel.length > 0) {
+          let count = 0;
+          for (const a of byLabel) { a.status = "cancelled"; cancelTimer(a.id); count++; }
+          persistState();
+          updateStatusBar();
+          ctx.ui.notify(`Cancelled ${count} alarm(s) with label "${input}".`, "info");
           return;
         }
-        alarm.status = "cancelled";
-        cancelTimer(id);
-        persistState();
-        updateStatusBar();
-        ctx.ui.notify(`Alarm #${id} cancelled`, "info");
+
+        if (byPrefix.length === 1) {
+          const a = byPrefix[0];
+          a.status = "cancelled";
+          cancelTimer(a.id);
+          persistState();
+          updateStatusBar();
+          ctx.ui.notify(`Cancelled #${a.id}: ${a.message}`, "info");
+          return;
+        }
+
+        ctx.ui.notify(`No pending alarm matching "${input}".`, "warning");
         return;
       }
 
@@ -938,11 +990,10 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const choices = pending.map((a) =>
-        `#${a.id} in ${formatRemaining(a.triggerAt)}` +
-        (a.label ? ` [${a.label}]` : "") +
-        (a.message ? ` — ${a.message}` : "")
-      );
+      const choices = pending.map((a) => {
+        const label = a.label ? ` [${a.label}]` : "";
+        return `#${a.id}${label} in ${formatRemaining(a.triggerAt)} — ${a.message || "(no message)"}`;
+      });
       const choice = await ctx.ui.select("Select alarm to cancel:", choices);
       if (choice === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
       const match = choice.match(/#(\d+)/);
@@ -958,11 +1009,12 @@ export default function (pi: ExtensionAPI) {
       cancelTimer(selectedId);
       persistState();
       updateStatusBar();
-      ctx.ui.notify(`Cancelled #${selectedId}: ${alarm.message}`, "info");
+      const label = alarm.label ? ` [${alarm.label}]` : "";
+      ctx.ui.notify(`Cancelled #${selectedId}${label}: ${alarm.message}`, "info");
     },
   });
 
-  // /alarm-clear
+  // /alarm-clear — show summary + confirm before clearing
   pi.registerCommand("alarm-clear", {
     description: "Cancel all pending alarms",
     handler: async (_args, ctx) => {
@@ -975,9 +1027,10 @@ export default function (pi: ExtensionAPI) {
       // Show summary and confirm
       const summary =
         `${pending.length} alarm(s) pending:` +
-        pending.slice(0, 5).map((a) =>
-          `\n  #${a.id} — ${a.message || "(no message)"}`
-        ).join("") +
+        pending.slice(0, 5).map((a) => {
+          const label = a.label ? ` [${a.label}]` : "";
+          return `\n  #${a.id}${label} — ${a.message || "(no message)"}`;
+        }).join("") +
         (pending.length > 5 ? `\n  ... and ${pending.length - 5} more` : "");
 
       const confirmed = await ctx.ui.confirm("Clear all alarms?", summary);
@@ -991,7 +1044,7 @@ export default function (pi: ExtensionAPI) {
       }
       persistState();
       updateStatusBar();
-      ctx.ui.notify(`Cleared ${count} alarm${count > 1 ? "s" : ""}`, "info");
+      ctx.ui.notify(`Cleared ${count} alarm${count > 1 ? "s" : ""}.`, "info");
     },
   });
 
