@@ -414,7 +414,7 @@ export default function (pi: ExtensionAPI) {
     label: "Alarm Set",
     description:
       "Schedule an alarm at an absolute date/time (ISO 8601). When the alarm fires, a message will be injected to wake you up. Use alarm_now to get the current time before computing the target time.",
-    promptSnippet: "Set alarm: alarm_set(at="ISO datetime", message?, label?, expiresIn?)",
+    promptSnippet: "Set alarm: alarm_set(at='ISO datetime', message?, label?, expiresIn?)",
     promptGuidelines: [
       "Call alarm_now first to get the current time and local offset (e.g., +08:00).",
       "Use the offset from alarm_now to construct the timestamp. e.g., if alarm_now shows +08:00 and the user wants 5pm local: '2026-06-25T17:00:00+08:00'.",
@@ -615,7 +615,7 @@ export default function (pi: ExtensionAPI) {
     name: "alarm_cancel",
     label: "Alarm Cancel",
     description: "Cancel an active alarm or timer by its id or label. Use alarm_list to find alarm ids.",
-    promptSnippet: "Cancel alarm: alarm_cancel(alarm_id="...") or alarm_cancel(label="...")",
+    promptSnippet: "Cancel alarm: alarm_cancel(alarm_id='...') or alarm_cancel(label='...')",
     promptGuidelines: [
       "Use alarm_cancel when the user no longer needs a scheduled alarm or timer.",
     ],
