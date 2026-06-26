@@ -156,12 +156,16 @@ function formatTriggerAt(triggerAt: number): string {
 
 function formatRemaining(triggerAt: number): string {
   const remaining = Math.max(0, Math.ceil((triggerAt - Date.now()) / 1000));
-  const h = Math.floor(remaining / 3600);
+  const d = Math.floor(remaining / 86400);
+  const h = Math.floor((remaining % 86400) / 3600);
   const m = Math.floor((remaining % 3600) / 60);
   const s = remaining % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+  return parts.join(" ");
 }
 
 // ── Extension Entry ────────────────────────────────────────────────────────
@@ -319,6 +323,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       message: Type.String({ description: "Reminder content" }),
       delay: Type.Number({ description: "Seconds from now to trigger the alarm. Must be positive." }),
+      label: Type.Optional(Type.String({ description: "Optional label for grouping/cancelling related alarms." })),
       expiresIn: Type.Optional(
         Type.String({
           description:
@@ -360,7 +365,8 @@ export default function (pi: ExtensionAPI) {
       const triggerAt = now.getTime() + params.delay * 1000;
       const expiresIn = parseExpiresIn(params.expiresIn);
       const mgr = getManager();
-      const alarm = mgr.setRelative(params.delay, params.message, expiresIn, params.label);
+      const label = params.label?.trim() || undefined;
+      const alarm = mgr.setRelative(params.delay, params.message, expiresIn, label);
       persistState();
       updateStatusBar();
 
@@ -429,6 +435,7 @@ export default function (pi: ExtensionAPI) {
         description:
           "ISO 8601 timestamp (e.g., 2026-06-26T14:30:00Z, 2026-06-26T14:30:00+08:00, or date-only 2026-06-26). Must be in the future.",
       }),
+      label: Type.Optional(Type.String({ description: "Optional label for grouping/cancelling related alarms." })),
       expiresIn: Type.Optional(
         Type.String({
           description:
@@ -514,7 +521,8 @@ export default function (pi: ExtensionAPI) {
 
       const expiresIn = parseExpiresIn(params.expiresIn);
       const mgr = getManager();
-      const alarm = mgr.setAbsolute(new Date(triggerAt), params.message, expiresIn, params.label);
+      const label = params.label?.trim() || undefined;
+      const alarm = mgr.setAbsolute(new Date(triggerAt), params.message, expiresIn, label);
       persistState();
       updateStatusBar();
 
