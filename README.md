@@ -27,8 +27,8 @@ Timed alarms and reminders for pi — agent-callable tools and user slash comman
 **Tools:**
 
 - `alarm_now` — Get the current date and time. Call this before setting alarms or scheduling tasks to determine the correct time.
-- `alarm_wait` — Wait for a specified duration before being re-awakened. Use alarm_now tool first to check the current time. For absolute times, use alarm_set.
-- `alarm_set` — Schedule an alarm at an absolute date/time (ISO 8601). When the alarm fires, a message will be injected to wake you up. Use alarm_now to get the current time before computing the target time.
+- `alarm_wait` — Schedule a reminder alarm using a relative delay in seconds. When triggered, a message is injected into the conversation.
+- `alarm_set` — Schedule a reminder alarm using an absolute ISO 8601 timestamp. When triggered, a message is injected into the conversation.
 - `alarm_list` — List all pending alarms.
 - `alarm_cancel` — Cancel an active alarm or timer by its id or label. Use alarm_list to find alarm ids.
 
